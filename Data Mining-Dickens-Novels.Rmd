@@ -1,0 +1,349 @@
+---
+title: "Text Mining"
+author: "Parnian Jahangiri Rad"
+date: "3/19/2022"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Analysing Dickens books  
+We will use these libraries:  
+```{r,message=FALSE,warning=FALSE}
+library(tidyverse)
+library(gutenbergr)
+library(tidytext)
+library(wordcloud2)
+library(ragg)
+library(graphics)
+```
+
+We will download all his novels using `gutenbergr` package.  
+  
+#### Find 20 most common words in Dickens novels  
+  
+After removing stop words, we will find 20 words that Dickens used most
+in his novels:  
+```{r}
+x <- gutenberg_works(author == "Dickens, Charles")
+
+books <- c("The Pickwick Papers",
+           "Oliver Twist",
+           "Nicholas Nickleby",
+           "The Old Curiosity Shop",
+           "Barnaby Rudge: A Tale of the Riots of 'Eighty",
+           "Martin Chuzzlewit", 
+           "Dombey and Son", 
+           "David Copperfield", 
+           "Bleak House",
+           "Hard Times", 
+           "Little Dorrit", 
+           "A Tale of Two Cities", 
+           "Great Expectations", 
+           "Our Mutual Friend", 
+           "The Mystery of Edwin Drood") 
+
+ids <- array(dim = length(books))
+count <- 1 
+for (i in books){
+  ids[count] <- x[x$title==i,"gutenberg_id"]$gutenberg_id
+  count <- count + 1
+}
+
+dickens <- gutenberg_download(ids,mirror =  "http://mirrors.xmission.com/gutenberg/")
+
+tidy_dickens <- dickens %>%
+  unnest_tokens(word, text) %>%
+  anti_join(stop_words)
+
+td <- tidy_dickens %>%
+  count(word, sort = TRUE) %>%
+  mutate(word = reorder(word, n))
+```
+
+```{r}
+td_20 <- td %>% top_n(20)
+
+ggplot(td_20,aes(x=n,y=word)) + 
+  geom_bar(stat = "identity",fill="blueviolet") +
+  ggtitle("top 20 words Dickens used most")
+```
+  
+    
+#### Wordcloud of 200 most common words in Dickens novels  
+Now, we want to draw the wordcloud of 200 words that Dickens used most:  
+```{r}
+td %>%
+  arrange(desc(n)) %>%
+  head(200) %>%
+  wordcloud2(size = 1,
+    shape = "circle",color = "random-dark",
+    minRotation = pi/2, maxRotation = -pi/2, minSize = 10,
+    rotateRatio = 1)
+```
+  
+#### Main characters of Dickens novels  
+In order to find the most important characters in the novels, first we will find the words with capital letters as their first letter.
+Then we will check if there is any mentions of that word while its first letter is lower case as well.If there is not, the word can be considered as a name.  
+```{r}
+names <- dickens %>%
+  unnest_tokens(word, text, to_lower = F) %>%
+  mutate(word = str_extract(word, "[A-Z][a-z]+")) %>%
+  na.omit()
+
+words <- dickens %>%
+  unnest_tokens(word, text, to_lower = F) %>%
+  mutate(word = str_extract(word, "[a-z]+")) %>%
+  na.omit()
+
+
+names <- names[!str_to_lower(names$word) %in% words$word,]
+
+
+names <- names %>% 
+  group_by(gutenberg_id) %>% 
+  filter((word!="Mr") & (word!="Mrs")) %>% 
+  count(word)
+
+book_ids <- data.frame(ids, books)
+
+characters <- tibble(names) %>%
+  group_by(gutenberg_id) %>% 
+  mutate() %>% 
+  top_n(5) 
+for (id in book_ids$ids){
+  characters[characters$gutenberg_id==id, "Book"] <- book_ids[book_ids$ids==id, "books"]
+}
+```
+
+```{r}
+characters <- characters %>%
+  group_by(Book)
+p <- ggplot(data = characters,
+       aes(x = reorder(word,n) ,
+           y = n ,
+           fill = Book)) +
+  geom_bar(stat = "identity") +
+  coord_flip() +
+  facet_wrap(.~Book, scales = 'free') +
+  labs(x = NULL,y = NULL) +
+  theme(axis.text.x = element_blank())
+```
+
+```{r}
+pngfile <- fs::path(knitr::fig_path(),  "scaling.png")
+agg_png(pngfile, width = 60, height = 36, units = "cm", res = 300, scaling = 2)
+plot(p)
+invisible(dev.off())
+knitr::include_graphics(pngfile)
+```
+  
+#### Find 10 most common verbs done by men and women  
+```{r}
+dickens_4gram<- dickens %>% 
+  unnest_tokens(bigram, text, token = "ngrams", n = 4)
+dickens_4gram_heshe <- dickens_4gram %>% 
+  separate(bigram, c("word1","word2","word3","word4"), sep=" ") %>% 
+  filter(word1=="he" | word1=="she") %>% 
+  filter(word2!="is" | (word2=="is" & (word3!="not" & word3!="a" & word3!="an") )) %>% 
+  filter(word2!="was" | (word2=="was" & (word3!="not" & word3!="a" & word3!="an") ))
+dickens_4gram_heshe_backup <- dickens_4gram_heshe
+
+aux <- tribble(~word,"had","have","has","was","is","would","could","did","might","should")
+aux2 <- tribble(~word,"been","never")
+dickens_4gram_heshe <- dickens_4gram_heshe_backup
+dickens_4gram_heshe %>% 
+  mutate(second_word = ifelse(
+    !(dickens_4gram_heshe$word2%in%aux$word),
+     dickens_4gram_heshe$word2,ifelse(
+        !(dickens_4gram_heshe$word3%in%aux2$word),
+        dickens_4gram_heshe$word3,dickens_4gram_heshe$word4)))->dickens_4gram_heshe2
+dickens_4gram_heshe2 %>% 
+  filter(second_word!="not"&second_word!="have"&second_word!="and"&second_word!="so") %>% 
+  filter(second_word!="a" & second_word!="an"&second_word!="will"&second_word!="be",) %>%
+  filter(second_word!="the"&second_word!="were",second_word!="in") %>% 
+  group_by(word1,second_word) %>% 
+  summarise(count=n()) %>% 
+  ungroup() %>% 
+  group_by(word1) %>% 
+  arrange(desc(count)) %>% 
+  slice(1:10) %>% 
+  mutate(top=seq_along(word1))->dickens_4gram_heshe3
+
+
+ggplot(dickens_4gram_heshe3,aes(x=-top,y=count,fill=word1))+
+  geom_bar(stat = "identity")+
+  facet_wrap(. ~ word1)+
+  geom_text(aes(y = count+50, label = second_word), hjust = "left")+
+  coord_flip()+
+  labs(x=NULL)+
+  scale_y_continuous(limits = c(0,max(dickens_4gram_heshe3$count)*1.1))+
+  theme_minimal()+
+  theme(legend.position = 'none',
+        axis.text.y = element_blank())
+```
+  
+#### Bigrams of `The Pickwick Papers` and `Oliver Twist`  
+
+```{r}
+x <- gutenberg_works(author == "Dickens, Charles")
+
+books <- c("The Pickwick Papers",
+           "Oliver Twist") 
+
+ids <- array(dim = length(books))
+cnt <- 1 
+for (i in books){
+  ids[cnt] <- x[x$title==i,"gutenberg_id"]$gutenberg_id
+  cnt <- cnt + 1
+}
+
+Books <- gutenberg_download(ids, meta_fields = "title",mirror = "http://mirrors.xmission.com/gutenberg/")
+
+books <- Books %>%
+  group_by(title) %>%
+  mutate(line = row_number(),
+         chapter = cumsum(str_detect(text, regex("^chapter [\\divxlc]",
+                                                 ignore_case = TRUE)))) %>%
+  ungroup()
+
+pick <- books[(books$title=="The Pickwick Papers") & (books$chapter >= 58), ]
+pick$chapter <- pick$chapter - 57 
+
+oliver <- books[(books$title=="Oliver Twist") & (books$chapter >= 1), ]
+```
+
+```{r}
+pick_bigrams <- pick %>% group_by(chapter)  %>%
+  unnest_tokens(bigram, text, token = "ngrams", n = 2) %>% na.omit() %>%
+  count(bigram, sort = TRUE)
+
+oliver_bigrams <- oliver %>% group_by(chapter)  %>%
+  unnest_tokens(bigram, text, token = "ngrams", n = 2) %>% na.omit() %>%
+  count(bigram, sort = TRUE)
+```
+
+```{r}
+pick_bigrams <- pick_bigrams %>%
+  group_by(chapter) %>%
+  top_n(3)
+
+pick_bi <- ggplot(pick_bigrams,aes(x = bigram, y = n, fill = chapter)) +
+  geom_bar(stat = "identity") +
+  coord_flip() +
+  facet_wrap(.~ chapter, scales = 'free') +
+  labs(x = NULL,y = NULL) +
+  theme(axis.text.x = element_blank())
+```
+
+```{r}
+pngfile <- fs::path(knitr::fig_path(),  "scaling.png")
+agg_png(pngfile, width = 60, height = 36, units = "cm", res = 300, scaling = 2)
+plot(pick_bi)
+invisible(dev.off())
+knitr::include_graphics(pngfile)
+```
+
+```{r}
+oliver_bigrams <- oliver_bigrams %>%
+  group_by(chapter) %>%
+  top_n(3)
+
+Oliver_bi <- ggplot(oliver_bigrams,aes(x = bigram, y = n, fill = chapter)) +
+  geom_bar(stat = "identity") +
+  coord_flip() +
+  facet_wrap(.~ chapter, scales = 'free') +
+  labs(x = NULL,y = NULL) +
+  theme(axis.text.x = element_blank())
+```
+
+```{r}
+pngfile <- fs::path(knitr::fig_path(),  "scaling.png")
+agg_png(pngfile, width = 60, height = 36, units = "cm", res = 300, scaling = 2)
+plot(pick_bi)
+invisible(dev.off())
+knitr::include_graphics(pngfile)
+```
+  
+#### Compare unigrams of all dickens books  
+
+```{r}
+x <- gutenberg_works(author == "Dickens, Charles")
+
+books <- c("The Pickwick Papers",
+           "Oliver Twist",
+           "Nicholas Nickleby",
+           "The Old Curiosity Shop",
+           "Barnaby Rudge: A Tale of the Riots of 'Eighty",
+           "Martin Chuzzlewit", 
+           "Dombey and Son", 
+           "David Copperfield", 
+           "Bleak House",
+           "Hard Times", 
+           "Little Dorrit", 
+           "A Tale of Two Cities", 
+           "Great Expectations", 
+           "Our Mutual Friend", 
+           "The Mystery of Edwin Drood") 
+
+ids <- array(dim = length(books))
+count <- 1 
+for (i in books){
+  ids[count] <- x[x$title==i,"gutenberg_id"]$gutenberg_id
+  count <- count + 1
+}
+
+dickens_books <- gutenberg_download(ids, meta_fields = "title",
+                    mirror = "http://mirrors.xmission.com/gutenberg/")
+```
+
+```{r,warning=FALSE,message=FALSE}
+dickens_unigrams <- dickens_books %>%
+  unnest_tokens(one_gram, text, token = "ngrams", n = 1) %>% 
+  filter(!one_gram %in% stop_words$word) %>% 
+  group_by(title,one_gram) %>% 
+  summarise(freq = n()) %>% 
+  ungroup() %>% 
+  group_by(title) %>% 
+  arrange(desc(freq)) %>% 
+  mutate(rank = seq_along(one_gram))
+
+ggplot(dickens_unigrams,aes(x=log10(rank) , y=log10(freq)))+
+  geom_line(aes(group=title , color=title), size=1)
+```
+
+### Sentiment Analysis of `Les Miserables`    
+We are going to clean the text of Les Miserables and then, rank the sentiment of each word. At the end, we  will divide this book into 200 parts and cont the number of positive and negative words in each part.  
+We will see that Les miserables is a sad story.  
+```{r}
+daat <- gutenberg_metadata %>% filter(title == "Les Misérables")
+book <- gutenberg_download(daat$gutenberg_id,
+                mirror="http://mirrors.xmission.com/gutenberg/")
+words <- book %>%
+  unnest_tokens(word, text) %>%
+  anti_join(stop_words)
+
+words <- words %>%
+  dplyr::mutate(order = row_number()) %>%  
+  inner_join(get_sentiments("bing"))
+
+emotion <- words %>%
+  mutate(index = floor(words$order/(last(words$order)/200))) %>%
+  group_by(index ,sentiment) %>%
+  dplyr::count() %>%
+  tidyr::spread(sentiment, n, fill = 0)  
+
+emotion <- emotion[1:nrow(emotion)-1,]
+```
+
+```{r}
+ggplot() + 
+  geom_line(data=emotion, aes(x=index, y = positive, color = "steelblue"), size=1) + 
+  geom_line(data=emotion, aes(x=index, y = negative, color="darkred"), size=1) +
+  ylab('Sentiment') + xlab('Part')+
+  scale_color_discrete(labels = c("negative Sentiment", "positive Sentiment"))
+```
