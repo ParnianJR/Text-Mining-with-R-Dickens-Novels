@@ -2,7 +2,7 @@
 We will analyze Charles Dickense Novels using following packages:
 - `gutenburgr`  
 - `tidyverse`  
-- tidytext`  
+- `tidytext`  
 - `worldcloud2`  
 We are going to:
 - Find 20 most common words in Dickens novels  
