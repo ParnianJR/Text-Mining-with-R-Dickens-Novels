@@ -1,4 +1,4 @@
-# Text-Mining-with-R-Dickens-Novels  
+# Text Mining with R (Analysing Dickense novels)    
 We will analyze Charles Dickense Novels using following packages:
 - `gutenburgr`  
 - `tidyverse`  
